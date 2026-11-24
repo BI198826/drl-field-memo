@@ -63,6 +63,8 @@ form.stack { display: flex; flex-direction: column; gap: 18px; }
 
 .pill { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--chip); color: var(--muted); vertical-align: middle; }
 .pill.signed { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+.pill.bad { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+.bad-note { color: var(--bad); }
 .pill.draft { background: color-mix(in srgb, var(--accent) 28%, transparent); color: var(--ink); }
 
 label.f { display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 600; color: var(--muted); min-width: 0; }
@@ -106,6 +108,11 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
 
 .empty { text-align: center; color: var(--muted); padding: 28px 12px; border: 1.5px dashed var(--line); border-radius: 8px; }
 .note { font-size: 14px; color: var(--muted); }
+.syncline { display: block; width: 100%; text-align: left; border: 0; border-left: 4px solid var(--good); background: var(--surface); color: var(--ink); padding: 10px 12px; border-radius: 6px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; min-height: 44px; }
+.syncline.busy { border-left-color: var(--accent); } .syncline.off { border-left-color: var(--muted); color: var(--muted); } .syncline.err { border-left-color: var(--bad); color: var(--bad); }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { min-height: 40px; padding: 6px 14px; border-radius: 999px; border: 1.5px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+.chip.on { background: var(--steel); border-color: var(--steel); color: var(--bar-ink); }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 15px; }
 .kv dt { color: var(--muted); } .kv dd { margin: 0; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 
@@ -172,9 +179,17 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
   const UOM = ['ea', 'lf', 'ft', 'sf', 'sheet', 'box', 'bag', 'pail', 'gal', 'L', 'tube', 'roll', 'bundle', 'cy', 'm', 'm²', 'kg', 'lot'];
   const inFrame = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
 
+  // ---------- shared sync (Supabase) ----------
+  // Fill in both values to turn on sync. The key is the project's public "anon" / "publishable" key, safe to publish:
+  // only foremen signed in with an account the office created can read or write.
+  const SYNC = { url: 'https://jlxvvxfyowtowvymxlcf.supabase.co', key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpseHZ2eGZ5b3d0b3d2eW14bGNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTU0NTk1MDcsImV4cCI6MjExMTAzNTUwN30.BGeA0BGf69_95CkWHhmpMWPYES9DzCZ2h_8KXjkNquA' };
+  const SYNC_ON = !!(SYNC.url && SYNC.key);
+  const AUTH_KEY = 'drl-fieldmemo.auth';
+
   // ---------- storage ----------
   function load() { try { const raw = localStorage.getItem(KEY); if (raw) return JSON.parse(raw); } catch (e) {} return null; }
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { toast('Could not save on this device'); } }
+  function persist() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { toast('Could not save on this device'); } }
+  function save() { if (SYNC_ON && auth) { markChanges(); persist(); scheduleSync(); } else persist(); }
   const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
   const isoDay = (d) => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 10); };
   const today = () => isoDay(new Date());
@@ -201,8 +216,146 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
     };
   }
 
+  const emptyData = () => ({ settings: { company: 'Dynamic Restoration Ltd', short: 'DRLTD', supervisor: '' }, nextNo: 1001, jobs: [], tickets: [] });
+  let auth = null;
+  try { auth = JSON.parse(localStorage.getItem(AUTH_KEY) || 'null'); } catch (e) {}
+  if (!SYNC_ON) auth = null;
+  // invite / reset-password links from Supabase land here with the session in the address (#access_token=…&type=invite)
+  let setPass = false;
+  if (SYNC_ON && /access_token=|error_description=/.test(location.hash)) {
+    const h = new URLSearchParams(location.hash.slice(1));
+    history.replaceState(null, '', location.pathname + location.search);
+    if (h.get('access_token')) {
+      auth = { access: h.get('access_token'), refresh: h.get('refresh_token'), exp: Date.now() + (+h.get('expires_in') || 3600) * 1000, email: '' };
+      setPass = ['invite', 'recovery', 'signup', 'magiclink'].includes(h.get('type'));
+      try { const pl = JSON.parse(atob(auth.access.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); auth.email = pl.email || ''; } catch (e) {}
+      try { localStorage.setItem(AUTH_KEY, JSON.stringify(auth)); } catch (e) {}
+    } else setTimeout(() => toast('That link has expired. Ask the office for a new one, or tap Forgot password.'), 300);
+  }
+  const saveAuth = () => { try { if (auth) localStorage.setItem(AUTH_KEY, JSON.stringify(auth)); else localStorage.removeItem(AUTH_KEY); } catch (e) {} };
+
   let db = load();
-  if (!db) { db = sampleData(); save(); }
+  if (!db) { db = SYNC_ON ? emptyData() : sampleData(); persist(); }
+
+  // Every save compares each project / memo with what was last synced, so any change anywhere gets sent.
+  const cyrb = (str) => { let h1 = 0xdeadbeef, h2 = 0x41c6ce57; for (let i = 0; i < str.length; i++) { const c = str.charCodeAt(i); h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677); }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909); h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (h2 >>> 0).toString(36) + (h1 >>> 0).toString(36); };
+  function recordsOf(d) {
+    const m = {};
+    d.jobs.forEach((j) => { if (!j.sample) m['job:' + j.id] = j; });
+    d.tickets.forEach((t) => { if (!t.sample) m['ticket:' + t.id] = t; });
+    m['settings:company'] = { company: d.settings.company, short: d.settings.short };
+    return m;
+  }
+  const syncState = () => db.sync || (db.sync = { cursor: 0, hash: {}, mod: {}, dirty: {}, last: 0 });
+  function markChanges() {
+    const s = syncState(), recs = recordsOf(db), now = Date.now();
+    for (const k in recs) { const h = cyrb(JSON.stringify(recs[k])); if (s.hash[k] !== h) { s.hash[k] = h; s.mod[k] = now; s.dirty[k] = 1; } }
+    for (const k in s.hash) if (!(k in recs)) { delete s.hash[k]; s.mod[k] = now; s.dirty[k] = 1; }
+  }
+  const pendingCount = () => Object.keys(db.sync?.dirty || {}).length;
+
+  async function authCall(grant, body) {
+    const r = await fetch(`${SYNC.url}/auth/v1/token?grant_type=${grant}`, { method: 'POST', headers: { apikey: SYNC.key, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error(j.error_description || j.msg || j.message || 'Sign-in failed'); e.status = r.status; throw e; }
+    auth = { access: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000, email: j.user?.email || auth?.email || '' };
+    saveAuth();
+  }
+  async function api(path, opt = {}, retry = true) {
+    if (auth.exp - 60000 < Date.now()) {
+      try { await authCall('refresh_token', { refresh_token: auth.refresh }); }
+      catch (e) { if (e.status >= 400 && e.status < 500) { auth = null; saveAuth(); render(); throw new Error('Please sign in again'); } throw e; }
+    }
+    const r = await fetch(SYNC.url + path, { ...opt, headers: { apikey: SYNC.key, Authorization: 'Bearer ' + auth.access, 'Content-Type': 'application/json', ...(opt.headers || {}) } });
+    if (r.status === 401 && retry) { auth.exp = 0; return api(path, opt, false); }
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.message || 'Server said ' + r.status); }
+    return r;
+  }
+
+  let syncing = false, syncAgain = false, syncTimer = 0, syncErr = '';
+  function scheduleSync(ms = 1200) { clearTimeout(syncTimer); syncTimer = setTimeout(runSync, ms); }
+  async function runSync(full) {
+    if (!SYNC_ON || !auth) return;
+    if (syncing) { syncAgain = true; return; }
+    if (!navigator.onLine) { paintSync(); return; }
+    syncing = true; syncErr = ''; paintSync();
+    let changed = false;
+    try {
+      if (!auth.email) { const u = await (await api('/auth/v1/user')).json(); auth.email = u.email || ''; saveAuth(); if (setPass) render(); }
+      const s = syncState();
+      if (full) s.cursor = 0;
+      // 1. send this phone's changes
+      const keys = Object.keys(s.dirty);
+      if (keys.length) {
+        const recs = recordsOf(db), sent = {};
+        const rows = keys.map((k) => { const i = k.indexOf(':'), r = recs[k]; sent[k] = s.mod[k] || Date.now(); return { kind: k.slice(0, i), id: k.slice(i + 1), data: r || {}, deleted: !r, mod: sent[k] }; });
+        for (let i = 0; i < rows.length; i += 40) {
+          await api('/rest/v1/records?on_conflict=kind,id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(rows.slice(i, i + 40)) });
+        }
+        keys.forEach((k) => { if (s.mod[k] === sent[k]) { delete s.dirty[k]; if (!(k in s.hash)) delete s.mod[k]; } });
+        persist();
+      }
+      // 2. fetch everyone else's changes (small overlap so nothing committed late is missed)
+      let after = Math.max(0, s.cursor - 25), top = s.cursor;
+      for (;;) {
+        const rows = await (await api(`/rest/v1/records?select=kind,id,data,deleted,mod,seq&seq=gt.${after}&order=seq.asc&limit=500`)).json();
+        if (applyRows(rows)) changed = true;
+        if (rows.length) { after = rows[rows.length - 1].seq; top = Math.max(top, after); }
+        if (rows.length < 500) break;
+      }
+      s.cursor = top; s.last = Date.now();
+      const team = await (await api('/rest/v1/team?select=email,name,role')).json();
+      if (JSON.stringify(team) !== JSON.stringify(db.team || [])) { db.team = team; changed = true; }
+      persist();
+    } catch (e) {
+      syncErr = navigator.onLine ? (e.message || 'Could not reach the server') : '';
+    } finally {
+      syncing = false;
+      if (setPass) paintSync();
+      else if (changed && ['jobs', 'job', 'all'].includes(view.name) || (changed && view.name === 'ticket' && !Object.values(sigDirty).some(Boolean))) rerenderKeepScroll();
+      else paintSync();
+      if (syncAgain) { syncAgain = false; scheduleSync(300); }
+    }
+  }
+  function applyRows(rows) {
+    const s = syncState(), touched = [];
+    let changed = false;
+    for (const row of rows) {
+      const k = row.kind + ':' + row.id, mine = s.mod[k] || 0;
+      if (s.dirty[k] && mine > row.mod) continue; // this phone has a newer change; it gets sent next
+      if (mine === row.mod && (row.deleted ? !(k in s.hash) : k in s.hash)) { delete s.dirty[k]; continue; } // already have it
+      delete s.dirty[k];
+      if (row.deleted && !(k in s.hash) && !s.mod[k]) continue; // a delete for something this phone never had
+      changed = true;
+      if (row.kind === 'settings') { if (!row.deleted) { db.settings.company = row.data.company ?? db.settings.company; db.settings.short = row.data.short ?? db.settings.short; } s.mod[k] = row.mod; touched.push(k); continue; }
+      const arr = row.kind === 'job' ? db.jobs : row.kind === 'ticket' ? db.tickets : null; if (!arr) continue;
+      const i = arr.findIndex((x) => x.id === row.id);
+      if (row.deleted) { if (i >= 0) arr.splice(i, 1); delete s.hash[k]; delete s.mod[k]; }
+      else { if (i >= 0) arr[i] = row.data; else arr.push(row.data); s.mod[k] = row.mod; touched.push(k); }
+    }
+    const recs = recordsOf(db);
+    touched.forEach((k) => { if (recs[k]) s.hash[k] = cyrb(JSON.stringify(recs[k])); });
+    return changed;
+  }
+
+  function syncText() {
+    if (!SYNC_ON || !auth) return '';
+    const p = pendingCount(), last = db.sync?.last || 0;
+    const ago = !last ? 'not yet' : (Date.now() - last < 60000 ? 'just now' : (Date.now() - last < 3600000 ? Math.round((Date.now() - last) / 60000) + ' min ago' : new Date(last).toLocaleString()));
+    const waiting = p ? `${p} change${p === 1 ? '' : 's'} waiting to send` : '';
+    if (syncing) return ['busy', 'Syncing…'];
+    if (!navigator.onLine) return ['off', `No signal. ${waiting || 'Everything is saved on this phone'}${p ? ', will send when signal returns' : ''}.`];
+    if (syncErr) return ['err', `Sync problem: ${syncErr}. Tap to retry.`];
+    if (p) return ['busy', waiting + '…'];
+    return ['ok', `All synced · ${ago}`];
+  }
+  const syncLine = () => SYNC_ON && auth ? `<button type="button" class="syncline" data-act="syncnow" id="syncline"></button>` : '';
+  function paintSync() {
+    const el = $('#syncline'); if (!el) return;
+    const [k, t] = syncText(); el.className = 'syncline ' + k; el.textContent = t;
+  }
 
   // ---------- helpers ----------
   const $ = (s, r = document) => r.querySelector(s);
@@ -222,7 +375,13 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
   }
   const ticketHours = (t) => t.labour.reduce((s, l) => s + hoursOf(l), 0);
   const signedState = (t) => (t.sigs.client.img ? (t.sigs.co.img ? 'signed' : 'client') : 'draft');
-  const statusPill = (t) => ({ signed: '<span class="pill signed">Signed</span>', client: '<span class="pill signed">Client signed</span>', draft: '<span class="pill draft">Not signed</span>' }[signedState(t)]);
+  const statusPill = (t) => ({ signed: '<span class="pill signed">Signed</span>', client: '<span class="pill signed">Client signed</span>', draft: '<span class="pill draft">Not signed</span>' }[signedState(t)]) + (SYNC_ON ? ' ' + pmPill(t) : '');
+  // PM sign-off: none -> sent (waiting for PM) -> approved (office sees it) or returned (back to the foreman)
+  const pmState = (t) => t.approval?.status || 'none';
+  const pmPill = (t) => ({ none: '<span class="pill">Not sent to PM</span>', sent: '<span class="pill draft">Waiting for PM</span>', approved: '<span class="pill signed">PM approved</span>', returned: '<span class="pill bad">Sent back</span>' }[pmState(t)] || '');
+  const me = () => (db.team || []).find((x) => String(x.email).toLowerCase() === String(auth?.email || '').toLowerCase());
+  const myRole = () => me()?.role || 'foreman';
+  const canApprove = () => ['pm', 'office'].includes(myRole());
 
   let toastTimer;
   function toast(msg) {
@@ -251,7 +410,15 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
         <span class="r">${fmtH(h)}<small>man-hrs</small></span>
         <span class="m">${esc([j.client, j.po && 'PO ' + j.po].filter(Boolean).join(' · '))}${j.client || j.po ? ' · ' : ''}${ts.length} memo${ts.length === 1 ? '' : 's'}</span></button>`;
     }).join('');
-    return bar('Field Memos', { settings: true }) + `<main>
+    const live = db.tickets.filter((t) => job(t.jobId)), wk = isoDay(Date.now() - 6 * 864e5);
+    return bar('Field Memos', { settings: true }) + `<main>${syncLine()}
+      <div class="totals">
+        <div class="tot"><div class="k">Projects</div><div class="v">${db.jobs.length}</div></div>
+        <div class="tot"><div class="k">Memos, 7 days</div><div class="v">${live.filter((t) => t.date >= wk).length}</div></div>
+        <div class="tot"><div class="k">Unsigned</div><div class="v">${live.filter((t) => !t.sigs.client.img).length}</div></div></div>
+      ${SYNC_ON && canApprove() ? (() => { const w = live.filter((t) => pmState(t) === 'sent').length; return `<button class="btn ${w ? 'primary' : ''} block" data-act="all" data-f="pm">${w ? `${w} memo${w === 1 ? '' : 's'} waiting for your sign-off` : 'No memos waiting for sign-off'}</button>`; })() : ''}
+      ${SYNC_ON ? (() => { const back = live.filter((t) => pmState(t) === 'returned').length; return back ? `<button class="btn danger block" data-act="all" data-f="returned">${back} memo${back === 1 ? ' was' : 's were'} sent back by a PM</button>` : ''; })() : ''}
+      <button class="btn block" data-act="all">${SYNC_ON ? (myRole() === 'office' ? 'Office view: approved memos' : 'See all memos from every foreman') : 'See all memos'}</button>
       <section class="section"><h2>Projects</h2>
       <div class="list">${items || '<div class="empty">No projects yet. Tap <b>New project</b> to add the first one.</div>'}</div></section>
       ${db.jobs.some((j) => j.sample) ? '<p class="note">The example project shows how memos look. Open it and tap Edit to delete it when you are ready.</p>' : ''}
@@ -277,8 +444,8 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
     const ts = jobTickets(j.id), h = ts.reduce((s, t) => s + ticketHours(t), 0), unsigned = ts.filter((t) => !t.sigs.client.img).length;
     const items = ts.map((t) => `<button class="row-btn" data-act="ticket" data-id="${t.id}">
         <span class="t">#${t.no} · ${esc(fmtDate(t.date))}</span><span class="r">${fmtH(ticketHours(t))}<small>hrs</small></span>
-        <span class="m">${statusPill(t)} ${esc((t.scope || '').slice(0, 70))}</span></button>`).join('');
-    return bar(j.project, { back: true }) + `<main>
+        <span class="m">${statusPill(t)} ${t.by ? 'by ' + esc(t.by) + ' · ' : ''}${esc((t.scope || '').slice(0, 70))}</span></button>`).join('');
+    return bar(j.project, { back: true }) + `<main>${syncLine()}
       <div class="card"><dl class="kv">
         ${[['Location', j.location], ['Client', j.client], ['Client rep', j.clientRep], ['Client P.O.#', j.po], [db.settings.short + ' PM', j.pm]].filter((x) => x[1]).map((x) => `<dt>${esc(x[0])}</dt><dd>${esc(x[1])}</dd>`).join('')}
       </dl><button class="btn" data-act="editjob">Edit project</button></div>
@@ -294,7 +461,8 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
   let draft = null;
   function blankTicket(jobId) {
     const prev = jobTickets(jobId)[0];
-    return { id: uid(), jobId, no: db.nextNo, date: today(), supervisor: prev?.supervisor || db.settings.supervisor || '', scope: '',
+    const no = Math.max(n(db.nextNo), ...db.tickets.filter((t) => !t.sample).map((t) => n(t.no) + 1));
+    return { id: uid(), jobId, no, date: today(), supervisor: prev?.supervisor || db.settings.supervisor || '', scope: '',
       labour: prev ? prev.labour.map((l) => ({ ...l })) : [{ name: db.settings.supervisor || '', start: '07:00', finish: '15:30', brk: 30 }],
       materials: [], equipment: [], notes: '', sigs: { co: { name: '', img: '', at: 0 }, client: { name: '', img: '', at: 0 } }, isNew: true };
   }
@@ -368,8 +536,28 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
       <h4>Speciality Equipment:</h4><div class="equip">${eqOrdered.map((e) => `<div>${esc(e)}</div>`).join('')}</div>
       <h4>Notes:</h4><div class="ruled" style="min-height:44px">${esc(t.notes)}</div>
       <div class="sigs">${sig(t.sigs.co, esc(s.short) + '. Representative')}${sig(t.sigs.client, 'Client Representative')}</div>
+      ${pmState(t) === 'approved' ? `<div class="sigs">${sig(t.approval, esc(s.short) + '. PM Approval')}<div></div></div>` : ''}
       <div class="foot"><span>Memo #${t.no}</span><span>Generated ${esc(new Date().toLocaleDateString())}</span></div>
     </article></div>`;
+  }
+
+  function pmBlock(t) {
+    const a = t.approval || {}, st = pmState(t), when = (x) => esc(new Date(x).toLocaleString());
+    let body = '';
+    if (st === 'approved') body = `<div class="sig-done">${a.img ? `<img src="${a.img}" alt="PM signature">` : ''}<b>${esc(a.name)}</b><span class="note">Approved ${when(a.at)}. The office can see this memo.</span></div>
+        ${canApprove() ? '<button class="btn" data-act="pmundo">Undo approval</button>' : ''}`;
+    else if (st === 'sent' && canApprove()) body = `<p class="note" style="margin:0">Sent by ${esc(a.sentBy || t.by || '')} ${a.sentAt ? when(a.sentAt) : ''}. Check the memo above, then sign to approve it for the office.</p>
+        <label class="f">Printed name<input id="s-name-pm" value="${esc(me()?.name || db.settings.supervisor || '')}"></label>
+        <div class="sig-wrap"><canvas id="sig-pm" data-who="pm"></canvas><span class="hint">PM sign here</span></div>
+        <div class="btns"><button class="btn" data-act="sigclear" data-who="pm">Clear</button><button class="btn primary" data-act="pmapprove">Approve and sign</button></div>
+        <label class="f">Or send it back to the foreman with a note<textarea id="pm-note" placeholder="What needs fixing"></textarea></label>
+        <button class="btn danger" data-act="pmreturn">Send back to foreman</button>`;
+    else if (st === 'sent') body = `<p class="note" style="margin:0">Sent ${a.sentAt ? when(a.sentAt) : ''}. Waiting for a project manager to sign it off. The office sees it once it is approved.</p>
+        <button class="btn" data-act="pmrecall">Take it back to make changes</button>`;
+    else body = `${st === 'returned' ? `<p class="note bad-note" style="margin:0"><b>Sent back by ${esc(a.name)}:</b> ${esc(a.note || 'No note')}. Edit the memo, then send it again.</p>` : ''}
+        <p class="note" style="margin:0">${t.sigs.client.img ? 'When the memo is complete, send it to the project manager to sign off.' : 'Get the client signature first if you can, then send it to the project manager.'}</p>
+        <button class="btn primary" data-act="pmsend">Send to PM for sign-off</button>`;
+    return `<section class="section no-print"><h2>Project manager sign-off ${pmPill(t)}</h2><div class="card">${body}</div></section>`;
   }
 
   function sigBlock(t, who, label) {
@@ -383,7 +571,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
   }
 
   function vTicket() {
-    const t = ticket(view.id); if (!t) { view = stack.pop() || { name: 'jobs' }; return render(), ''; }
+    const t = ticket(view.id); if (!t || !job(t.jobId)) { view = stack.pop() || { name: 'jobs' }; return render(), ''; }
     const s = db.settings;
     return bar(`Memo #${t.no}`, { back: true }) + `<main>
       <div class="btns no-print"><button class="btn" data-act="editticket">Edit memo</button>
@@ -393,8 +581,60 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
       <section class="section no-print"><h2>Sign-off ${statusPill(t)}</h2>
         ${sigBlock(t, 'client', 'Client Representative')}
         ${sigBlock(t, 'co', esc(s.short) + '. Representative')}
-        <p class="note" style="margin:0">Editing a memo after it is signed clears both signatures.</p></section>
+        <p class="note" style="margin:0">Editing a memo after it is signed clears both signatures${SYNC_ON ? ' and the PM sign-off' : ''}.</p></section>
+      ${SYNC_ON ? pmBlock(t) : ''}
       </main>`;
+  }
+
+  // office view: every memo from every foreman, newest first
+  let allFilter = 'all', allSearch = '';
+  function allMemos() {
+    const wk = isoDay(Date.now() - 6 * 864e5), q = allSearch.trim().toLowerCase();
+    const nos = {}; db.tickets.forEach((t) => (nos[t.no] = (nos[t.no] || 0) + 1));
+    return db.tickets.filter((t) => job(t.jobId))
+      .filter((t) => ({ all: true, unsigned: !t.sigs.client.img, week: t.date >= wk, pm: pmState(t) === 'sent', approved: pmState(t) === 'approved', returned: pmState(t) === 'returned' })[allFilter] ?? true)
+      .filter((t) => { if (!q) return true; const j = job(t.jobId); return [t.no, t.supervisor, t.by, j.project, j.client, j.po, t.scope].join(' ').toLowerCase().includes(q); })
+      .sort((a, b) => (b.date + String(b.no).padStart(8, '0')).localeCompare(a.date + String(a.no).padStart(8, '0')))
+      .map((t) => ({ t, dup: nos[t.no] > 1 }));
+  }
+  function allListHTML() {
+    const rows = allMemos();
+    const h = rows.reduce((s, r) => s + ticketHours(r.t), 0);
+    return `<div class="totals">
+        <div class="tot"><div class="k">Memos</div><div class="v">${rows.length}</div></div>
+        <div class="tot"><div class="k">Man-hours</div><div class="v">${fmtH(h)}</div></div>
+        <div class="tot"><div class="k">Unsigned</div><div class="v">${rows.filter((r) => !r.t.sigs.client.img).length}</div></div></div>
+      <div class="list">${rows.map(({ t, dup }) => `<button class="row-btn" data-act="ticket" data-id="${t.id}">
+        <span class="t">#${t.no} · ${esc(job(t.jobId).project)}</span><span class="r">${fmtH(ticketHours(t))}<small>hrs</small></span>
+        <span class="m">${statusPill(t)}${dup ? ' <span class="pill draft">Same no. as another memo</span>' : ''} ${esc(fmtDate(t.date))}${t.by || t.supervisor ? ' · ' + esc(t.by || t.supervisor) : ''}</span></button>`).join('') || '<div class="empty">No memos match.</div>'}</div>`;
+  }
+  function vAll() {
+    const chip = (k, label) => `<button class="chip${allFilter === k ? ' on' : ''}" data-act="filter" data-f="${k}" aria-pressed="${allFilter === k}">${label}</button>`;
+    return bar('All memos', { back: true }) + `<main>${syncLine()}
+      <div class="chips">${SYNC_ON ? chip('approved', 'PM approved') + chip('pm', 'Waiting for PM') + chip('returned', 'Sent back') : ''}${chip('all', 'All')}${chip('week', 'Last 7 days')}${chip('unsigned', 'Not client signed')}</div>
+      <input id="all-q" type="search" placeholder="Search project, memo no., foreman, client" aria-label="Search memos" value="${esc(allSearch)}">
+      <div id="all-list" class="stack">${allListHTML()}</div>
+      <button class="btn block" data-act="exportall">Export these memos (CSV)</button></main>`;
+  }
+
+  function vLogin() {
+    return bar('Sign in') + `<main><form id="loginform" class="stack">
+      <div class="card"><p class="note" style="margin:0">Sign in with the email and password the office gave you. You need signal for this once. After that the app works with no signal and catches up when signal returns.</p>
+        <label class="f">Your name (goes on your memos)<input id="lg-name" autocomplete="name" value="${esc(db.settings.supervisor)}" required></label>
+        <label class="f">Email<input id="lg-email" type="email" autocomplete="username" inputmode="email" value="${esc(auth?.email || '')}" required></label>
+        <label class="f">Password<input id="lg-pass" type="password" autocomplete="current-password" required></label></div>
+      <button class="btn primary block" type="submit" id="lg-go">Sign in</button>
+      <button class="btn block" type="button" data-act="forgot">Forgot password, or first time here?</button></form></main>`;
+  }
+
+  function vSetPass() {
+    const mine = me();
+    return bar('Choose a password') + `<main><form id="passform" class="stack">
+      <div class="card"><p class="note" style="margin:0">Welcome${mine?.name ? ', ' + esc(mine.name.split(' ')[0]) : ''}. You're signing in as <b>${esc(auth.email)}</b>. Pick a password you'll remember. You'll use it if you ever sign in on another phone.</p>
+        <label class="f">Your name (goes on your memos)<input id="sp-name" autocomplete="name" value="${esc(db.settings.supervisor || mine?.name || '')}" required></label>
+        <label class="f">New password (at least 8 characters)<input id="sp-pass" type="password" autocomplete="new-password" minlength="8" required></label>
+        <label class="f">Type it again<input id="sp-pass2" type="password" autocomplete="new-password" minlength="8" required></label></div>
+      <button class="btn primary block" type="submit" id="sp-go">Save password</button></form></main>`;
   }
 
   function vSettings() {
@@ -402,18 +642,23 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
     return bar('Settings', { back: true }) + `<main><form id="sform" class="stack">
       <div class="card"><label class="f">Company name<input id="s-company" value="${esc(s.company)}"></label>
         <label class="f">Short name on forms<input id="s-short" value="${esc(s.short)}"></label>
-        <label class="f">Default supervisor<input id="s-sup" value="${esc(s.supervisor)}"></label>
+        <label class="f">${SYNC_ON ? 'Your name (default supervisor)' : 'Default supervisor'}<input id="s-sup" value="${esc(s.supervisor)}"></label>
         <label class="f">Next memo number<input id="s-next" inputmode="numeric" value="${esc(db.nextNo)}"></label></div>
       <button class="btn primary block" type="submit">Save settings</button>
+      ${SYNC_ON && auth ? `<section class="section"><h2>Sync</h2><div class="card">${syncLine()}
+        <p class="note" style="margin:0">Signed in as <b>${esc(auth.email)}</b> (${{ foreman: 'foreman', pm: 'project manager', office: 'office' }[myRole()] || 'foreman'}). Projects and memos are shared with every foreman, the project managers and the office.</p>
+        <div class="btns"><button type="button" class="btn" data-act="syncfull">Re-download everything</button>
+        <button type="button" class="btn danger" data-act="signout">Sign out</button></div></div></section>` : ''}
       <section class="section"><h2>Backup</h2><div class="card">
-        <p class="note" style="margin:0">Memos are stored on this phone only. Back up now and then, and before switching phones.</p>
+        <p class="note" style="margin:0">${SYNC_ON ? 'Everything is also kept on the server. A backup file is an extra copy.' : 'Memos are stored on this phone only. Back up now and then, and before switching phones.'}</p>
         <div class="btns"><button type="button" class="btn" data-act="backup">Back up all data</button><button type="button" class="btn" data-act="restore">Restore backup</button></div>
       </div></section></form></main>`;
   }
 
   function render() {
-    const v = { jobs: vJobs, jobform: vJobForm, job: vJob, edit: vEdit, ticket: vTicket, settings: vSettings }[view.name] || vJobs;
+    const v = SYNC_ON && !auth ? vLogin : setPass ? vSetPass : { jobs: vJobs, jobform: vJobForm, job: vJob, edit: vEdit, ticket: vTicket, settings: vSettings, all: vAll }[view.name] || vJobs;
     $('#app').innerHTML = v();
+    paintSync();
     document.querySelectorAll('canvas[data-who]').forEach(initSig);
     fitPaper();
   }
@@ -463,10 +708,10 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
   // ---------- CSV / files ----------
   const csvCell = (v) => { const s = String(v ?? ''); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   function toCSV(ts) {
-    const rows = [['Project', 'Location', 'Client', 'Client Rep', 'Client PO#', 'PM', 'Memo #', 'Date', 'Supervisor', 'Type', 'Name / Description', 'Start', 'Finish', 'Break (min)', 'Hours', 'UOM', 'Qty', 'Client signed by', 'Scope of work', 'Notes']];
+    const rows = [['Project', 'Location', 'Client', 'Client Rep', 'Client PO#', 'PM', 'Memo #', 'Date', 'Supervisor', 'Type', 'Name / Description', 'Start', 'Finish', 'Break (min)', 'Hours', 'UOM', 'Qty', 'Client signed by', 'Scope of work', 'Notes', 'Entered by', 'PM approved by', 'PM approved on']];
     ts.slice().sort((a, b) => (a.date + String(a.no).padStart(8, '0')).localeCompare(b.date + String(b.no).padStart(8, '0'))).forEach((t) => {
       const j = job(t.jobId), base = [j.project, j.location, j.client, j.clientRep, j.po, j.pm, t.no, t.date, t.supervisor];
-      const tail = [t.sigs.client.img ? t.sigs.client.name : '', t.scope, t.notes];
+      const ap = pmState(t) === 'approved' ? t.approval : null, tail = [t.sigs.client.img ? t.sigs.client.name : '', t.scope, t.notes, t.by || '', ap ? ap.name : '', ap ? isoDay(ap.at) : ''];
       t.labour.forEach((l) => rows.push([...base, 'Labour', l.name, l.start, l.finish, n(l.brk), fmtH(hoursOf(l)), '', '', ...tail]));
       t.materials.forEach((m) => rows.push([...base, 'Material', m.desc, '', '', '', '', m.uom, m.qty, ...tail]));
       t.equipment.forEach((e) => rows.push([...base, 'Equipment', e, '', '', '', '', '', '', ...tail]));
@@ -497,14 +742,19 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
 
   function restorePrompt() {
     const m = document.createElement('div'); m.className = 'modal';
-    m.innerHTML = `<div class="sheet-ui" role="dialog" aria-label="Restore backup"><h3>Restore backup</h3><p class="note" style="margin:0">Pick a backup file or paste its text. This replaces everything on this phone.</p>
+    m.innerHTML = `<div class="sheet-ui" role="dialog" aria-label="Restore backup"><h3>Restore backup</h3><p class="note" style="margin:0">Pick a backup file or paste its text. ${SYNC_ON ? 'Projects and memos in it are added back (and shared). Nothing is removed.' : 'This replaces everything on this phone.'}</p>
       <input type="file" id="r-file" accept=".json,application/json"><textarea id="r-text" placeholder="Paste backup text" aria-label="Backup text"></textarea>
-      <div class="btns"><button class="btn" data-m="close">Cancel</button><button class="btn primary" data-m="go">Replace my data</button></div></div>`;
+      <div class="btns"><button class="btn" data-m="close">Cancel</button><button class="btn primary" data-m="go">${SYNC_ON ? 'Restore' : 'Replace my data'}</button></div></div>`;
     document.body.appendChild(m);
     $('#r-file', m).addEventListener('change', (e) => { const f = e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => ($('#r-text', m).value = rd.result); rd.readAsText(f); });
     m.addEventListener('click', (e) => {
       const a = e.target.closest('[data-m]')?.dataset.m; if (e.target === m || a === 'close') return m.remove();
-      if (a === 'go') { try { const d = JSON.parse($('#r-text', m).value); if (!d.jobs || !d.tickets || !d.settings) throw 0; db = d; save(); m.remove(); view = { name: 'jobs' }; stack.length = 0; render(); toast('Backup restored'); } catch (err) { toast('That is not a valid backup file'); } }
+      if (a === 'go') { try { const d = JSON.parse($('#r-text', m).value); if (!d.jobs || !d.tickets || !d.settings) throw 0;
+        if (SYNC_ON) { // add / update from the backup, never remove what others have synced
+          const put = (arr, x) => { const i = arr.findIndex((y) => y.id === x.id); if (i >= 0) arr[i] = x; else arr.push(x); };
+          d.jobs.filter((x) => !x.sample).forEach((x) => put(db.jobs, x)); d.tickets.filter((x) => !x.sample).forEach((x) => put(db.tickets, x));
+        } else { delete d.sync; db = d; }
+        save(); m.remove(); view = { name: 'jobs' }; stack.length = 0; render(); toast('Backup restored'); } catch (err) { toast('That is not a valid backup file'); } }
     });
   }
 
@@ -543,13 +793,38 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
       case 'sign': { const who = b.dataset.who, t = ticket(view.id), nm = $('#s-name-' + who).value.trim();
         if (!nm) { toast('Enter the printed name first'); $('#s-name-' + who).focus(); break; }
         if (!sigDirty[who]) { toast('Sign in the box first'); break; }
-        t.sigs[who] = { name: nm, img: trimmedPNG($('#sig-' + who)), at: Date.now() }; save(); rerenderKeepScroll(); toast('Signature saved'); } break;
-      case 'clearsig': if (confirmTap(b, 'cs' + b.dataset.who, 'Tap again to clear')) { const t = ticket(view.id); t.sigs[b.dataset.who] = { name: t.sigs[b.dataset.who].name, img: '', at: 0 }; save(); rerenderKeepScroll(); } break;
+        t.sigs[who] = { name: nm, img: trimmedPNG($('#sig-' + who)), at: Date.now() }; if (pmState(t) === 'approved') t.approval = null; save(); rerenderKeepScroll(); toast('Signature saved'); } break;
+      case 'clearsig': if (confirmTap(b, 'cs' + b.dataset.who, 'Tap again to clear')) { const t = ticket(view.id); t.sigs[b.dataset.who] = { name: t.sigs[b.dataset.who].name, img: '', at: 0 }; if (pmState(t) === 'approved') t.approval = null; save(); rerenderKeepScroll(); } break;
       case 'print': { const t = ticket(view.id), j = job(t.jobId), old = document.title; document.title = `Field Memo ${t.no} - ${j.project} - ${t.date}`; window.print(); setTimeout(() => (document.title = old), 1000); } break;
       case 'export': { const j = job(view.id); offerFile(`FieldMemos-${slug(j.po || j.project)}-${today()}.csv`, toCSV(jobTickets(j.id)), 'text/csv', 'Export project memos'); } break;
       case 'exportone': { const t = ticket(view.id), j = job(t.jobId); offerFile(`FieldMemo-${t.no}-${slug(j.project)}.csv`, toCSV([t]), 'text/csv', 'Export this memo'); } break;
       case 'backup': offerFile(`fieldmemo-backup-${today()}.json`, JSON.stringify(db), 'application/json', 'Back up all data'); break;
       case 'restore': restorePrompt(); break;
+      case 'forgot': { const email = $('#lg-email').value.trim();
+        if (!email) { toast('Type your email first'); $('#lg-email').focus(); break; }
+        if (!navigator.onLine) { toast('No signal. Try again when you have signal.'); break; }
+        b.disabled = true;
+        fetch(`${SYNC.url}/auth/v1/recover?redirect_to=${encodeURIComponent(location.origin + location.pathname)}`, { method: 'POST', headers: { apikey: SYNC.key, 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) })
+          .then((r) => { b.disabled = false; toast(r.ok ? 'Check your email for a link to set your password' : r.status === 429 ? 'Too many emails sent. Try again in an hour.' : 'Could not send the email'); })
+          .catch(() => { b.disabled = false; toast('Could not reach the server'); }); } break;
+      case 'all': allFilter = b.dataset.f || (myRole() === 'office' ? 'approved' : canApprove() ? 'pm' : 'all'); allSearch = ''; go({ name: 'all' }); break;
+      case 'pmsend': { const t = ticket(view.id); t.approval = { status: 'sent', sentBy: db.settings.supervisor || auth?.email || '', sentAt: Date.now() }; save(); rerenderKeepScroll(); toast('Sent to the project manager'); } break;
+      case 'pmrecall': { const t = ticket(view.id); t.approval = null; save(); rerenderKeepScroll(); } break;
+      case 'pmapprove': { const t = ticket(view.id), nm = $('#s-name-pm').value.trim();
+        if (!nm) { toast('Enter the printed name first'); $('#s-name-pm').focus(); break; }
+        if (!sigDirty.pm) { toast('Sign in the box first'); break; }
+        t.approval = { ...t.approval, status: 'approved', name: nm, img: trimmedPNG($('#sig-pm')), at: Date.now(), byEmail: auth?.email || '' }; save(); rerenderKeepScroll(); toast('Approved. The office can see it now.'); } break;
+      case 'pmreturn': { const t = ticket(view.id), note = $('#pm-note').value.trim();
+        if (!note) { toast('Add a note saying what needs fixing'); $('#pm-note').focus(); break; }
+        t.approval = { ...t.approval, status: 'returned', name: me()?.name || db.settings.supervisor || auth?.email || '', note, at: Date.now(), img: '' }; save(); rerenderKeepScroll(); toast('Sent back to the foreman'); } break;
+      case 'pmundo': if (confirmTap(b, 'pmundo', 'Tap again to undo the approval')) { const t = ticket(view.id); t.approval = { ...t.approval, status: 'sent', img: '', at: 0 }; save(); rerenderKeepScroll(); } break;
+      case 'filter': allFilter = b.dataset.f; rerenderKeepScroll(); break;
+      case 'exportall': offerFile(`FieldMemos-all-${today()}.csv`, toCSV(allMemos().map((r) => r.t)), 'text/csv', 'Export memos'); break;
+      case 'syncnow': syncErr = ''; runSync(); break;
+      case 'syncfull': runSync(true); toast('Downloading everything again'); break;
+      case 'signout': { const p = pendingCount();
+        if (!confirmTap(b, 'so', p ? `${p} change${p === 1 ? ' has' : 's have'} not been sent yet. Tap again to sign out anyway` : 'Tap again to sign out of this phone')) break;
+        auth = null; saveAuth(); const me = db.settings.supervisor; db = emptyData(); db.settings.supervisor = me; persist(); stack.length = 0; view = { name: 'jobs' }; render(); } break;
     }
   });
 
@@ -558,17 +833,43 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
     document.querySelectorAll('.lt').forEach((el) => (el.textContent = fmtH(hoursOf(draft.labour[+el.dataset.i])) + ' hrs'));
     const tot = $('#hrs-total'); if (tot) tot.textContent = fmtH(ticketHours(draft)) + ' hrs';
   }
-  document.addEventListener('input', (e) => { if (view.name === 'edit' && e.target.closest('[data-list="labour"]')) liveTotals(); });
+  document.addEventListener('input', (e) => { if (e.target.id === 'all-q') { allSearch = e.target.value; $('#all-list').innerHTML = allListHTML(); return; } if (view.name === 'edit' && e.target.closest('[data-list="labour"]')) liveTotals(); });
   document.addEventListener('change', (e) => { if (view.name === 'edit' && e.target.closest('[data-list="labour"]')) liveTotals(); });
 
   document.addEventListener('submit', (e) => {
     e.preventDefault();
     const f = e.target;
+    if (f.id === 'passform') {
+      const name = $('#sp-name').value.trim(), p1 = $('#sp-pass').value, p2 = $('#sp-pass2').value, btn = $('#sp-go');
+      if (!name) { toast('Enter your name'); return; }
+      if (p1.length < 8) { toast('Use at least 8 characters'); return; }
+      if (p1 !== p2) { toast('The two passwords do not match'); return; }
+      btn.disabled = true; btn.textContent = 'Saving…';
+      api('/auth/v1/user', { method: 'PUT', body: JSON.stringify({ password: p1 }) }).then(() => {
+        setPass = false; db.settings.supervisor = name;
+        db.jobs = db.jobs.filter((j) => !j.sample); db.tickets = db.tickets.filter((t) => !t.sample);
+        save(); stack.length = 0; view = { name: 'jobs' }; render(); toast('Password saved. You are signed in.'); runSync();
+      }).catch((err) => { btn.disabled = false; btn.textContent = 'Save password'; toast('Could not save: ' + err.message); });
+      return;
+    }
+    if (f.id === 'loginform') {
+      const name = $('#lg-name').value.trim(), email = $('#lg-email').value.trim(), pass = $('#lg-pass').value, btn = $('#lg-go');
+      if (!name) { toast('Enter your name'); return; }
+      if (!navigator.onLine) { toast('No signal. Signing in needs signal once.'); return; }
+      btn.disabled = true; btn.textContent = 'Signing in…';
+      authCall('password', { email, password: pass }).then(() => {
+        db.settings.supervisor = name;
+        db.jobs = db.jobs.filter((j) => !j.sample); db.tickets = db.tickets.filter((t) => !t.sample);
+        if (db.sync) db.sync.cursor = 0;
+        save(); stack.length = 0; view = { name: 'jobs' }; render(); toast('Signed in'); runSync();
+      }).catch((err) => { btn.disabled = false; btn.textContent = 'Sign in'; toast(/invalid/i.test(err.message) ? 'Email or password is wrong' : 'Could not sign in: ' + err.message); });
+      return;
+    }
     if (f.id === 'jobform') {
       const vals = {}; ['project', 'location', 'client', 'clientRep', 'po', 'pm'].forEach((k) => (vals[k] = $('#j-' + k).value.trim()));
       if (!vals.project) { toast('Give the project a name'); return; }
       if (view.id) { Object.assign(job(view.id), vals); save(); back(); }
-      else { const j = { id: uid(), created: Date.now(), ...vals }; db.jobs.push(j); save(); view = { name: 'job', id: j.id }; render(); window.scrollTo(0, 0); }
+      else { const j = { id: uid(), created: Date.now(), ...vals, ...(SYNC_ON ? { by: db.settings.supervisor || auth?.email || '' } : {}) }; db.jobs.push(j); save(); view = { name: 'job', id: j.id }; render(); window.scrollTo(0, 0); }
       toast('Project saved');
     }
     if (f.id === 'tform') {
@@ -577,10 +878,11 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
       draft.materials = draft.materials.filter((m) => m.desc.trim());
       draft.equipment = draft.equipment.map((x) => x.trim()).filter(Boolean);
       const isNew = draft.isNew; delete draft.isNew;
-      if (isNew) { db.tickets.push(draft); db.nextNo = Math.max(n(db.nextNo), draft.no) + 1; }
+      if (isNew) { if (SYNC_ON) draft.by = db.settings.supervisor || auth?.email || ''; db.tickets.push(draft); db.nextNo = Math.max(n(db.nextNo), draft.no) + 1; }
       else {
         const i = db.tickets.findIndex((t) => t.id === draft.id), old = db.tickets[i];
-        const strip = (t) => JSON.stringify({ ...t, sigs: null });
+        const strip = (t) => JSON.stringify({ ...t, sigs: null, approval: null });
+        if (old.approval && pmState(old) !== 'returned' && strip(old) !== strip(draft)) { draft.approval = null; toast('Memo changed. Send it to the PM again.'); }
         if ((old.sigs.co.img || old.sigs.client.img) && strip(old) !== strip(draft)) {
           draft.sigs.co = { ...draft.sigs.co, img: '', at: 0 }; draft.sigs.client = { ...draft.sigs.client, img: '', at: 0 }; toast('Memo changed, signatures cleared');
         }
@@ -598,6 +900,14 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
   });
 
   render();
+
+  if (SYNC_ON) {
+    if (auth) { markChanges(); persist(); runSync(); }
+    window.addEventListener('online', () => runSync());
+    window.addEventListener('offline', paintSync);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') runSync(); });
+    setInterval(() => { if (document.visibilityState === 'visible') runSync(); else paintSync(); }, 30000);
+  }
 
   if (!inFrame && 'serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
