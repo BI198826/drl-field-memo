@@ -220,6 +220,18 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
   let auth = null;
   try { auth = JSON.parse(localStorage.getItem(AUTH_KEY) || 'null'); } catch (e) {}
   if (!SYNC_ON) auth = null;
+  // invite / reset-password links from Supabase land here with the session in the address (#access_token=…&type=invite)
+  let setPass = false;
+  if (SYNC_ON && /access_token=|error_description=/.test(location.hash)) {
+    const h = new URLSearchParams(location.hash.slice(1));
+    history.replaceState(null, '', location.pathname + location.search);
+    if (h.get('access_token')) {
+      auth = { access: h.get('access_token'), refresh: h.get('refresh_token'), exp: Date.now() + (+h.get('expires_in') || 3600) * 1000, email: '' };
+      setPass = ['invite', 'recovery', 'signup', 'magiclink'].includes(h.get('type'));
+      try { const pl = JSON.parse(atob(auth.access.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); auth.email = pl.email || ''; } catch (e) {}
+      try { localStorage.setItem(AUTH_KEY, JSON.stringify(auth)); } catch (e) {}
+    } else setTimeout(() => toast('That link has expired. Ask the office for a new one, or tap Forgot password.'), 300);
+  }
   const saveAuth = () => { try { if (auth) localStorage.setItem(AUTH_KEY, JSON.stringify(auth)); else localStorage.removeItem(AUTH_KEY); } catch (e) {} };
 
   let db = load();
@@ -271,6 +283,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
     syncing = true; syncErr = ''; paintSync();
     let changed = false;
     try {
+      if (!auth.email) { const u = await (await api('/auth/v1/user')).json(); auth.email = u.email || ''; saveAuth(); if (setPass) render(); }
       const s = syncState();
       if (full) s.cursor = 0;
       // 1. send this phone's changes
@@ -300,7 +313,8 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
       syncErr = navigator.onLine ? (e.message || 'Could not reach the server') : '';
     } finally {
       syncing = false;
-      if (changed && ['jobs', 'job', 'all'].includes(view.name) || (changed && view.name === 'ticket' && !Object.values(sigDirty).some(Boolean))) rerenderKeepScroll();
+      if (setPass) paintSync();
+      else if (changed && ['jobs', 'job', 'all'].includes(view.name) || (changed && view.name === 'ticket' && !Object.values(sigDirty).some(Boolean))) rerenderKeepScroll();
       else paintSync();
       if (syncAgain) { syncAgain = false; scheduleSync(300); }
     }
@@ -609,7 +623,18 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
         <label class="f">Your name (goes on your memos)<input id="lg-name" autocomplete="name" value="${esc(db.settings.supervisor)}" required></label>
         <label class="f">Email<input id="lg-email" type="email" autocomplete="username" inputmode="email" value="${esc(auth?.email || '')}" required></label>
         <label class="f">Password<input id="lg-pass" type="password" autocomplete="current-password" required></label></div>
-      <button class="btn primary block" type="submit" id="lg-go">Sign in</button></form></main>`;
+      <button class="btn primary block" type="submit" id="lg-go">Sign in</button>
+      <button class="btn block" type="button" data-act="forgot">Forgot password, or first time here?</button></form></main>`;
+  }
+
+  function vSetPass() {
+    const mine = me();
+    return bar('Choose a password') + `<main><form id="passform" class="stack">
+      <div class="card"><p class="note" style="margin:0">Welcome${mine?.name ? ', ' + esc(mine.name.split(' ')[0]) : ''}. You're signing in as <b>${esc(auth.email)}</b>. Pick a password you'll remember. You'll use it if you ever sign in on another phone.</p>
+        <label class="f">Your name (goes on your memos)<input id="sp-name" autocomplete="name" value="${esc(db.settings.supervisor || mine?.name || '')}" required></label>
+        <label class="f">New password (at least 8 characters)<input id="sp-pass" type="password" autocomplete="new-password" minlength="8" required></label>
+        <label class="f">Type it again<input id="sp-pass2" type="password" autocomplete="new-password" minlength="8" required></label></div>
+      <button class="btn primary block" type="submit" id="sp-go">Save password</button></form></main>`;
   }
 
   function vSettings() {
@@ -631,7 +656,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
   }
 
   function render() {
-    const v = SYNC_ON && !auth ? vLogin : { jobs: vJobs, jobform: vJobForm, job: vJob, edit: vEdit, ticket: vTicket, settings: vSettings, all: vAll }[view.name] || vJobs;
+    const v = SYNC_ON && !auth ? vLogin : setPass ? vSetPass : { jobs: vJobs, jobform: vJobForm, job: vJob, edit: vEdit, ticket: vTicket, settings: vSettings, all: vAll }[view.name] || vJobs;
     $('#app').innerHTML = v();
     paintSync();
     document.querySelectorAll('canvas[data-who]').forEach(initSig);
@@ -775,6 +800,13 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
       case 'exportone': { const t = ticket(view.id), j = job(t.jobId); offerFile(`FieldMemo-${t.no}-${slug(j.project)}.csv`, toCSV([t]), 'text/csv', 'Export this memo'); } break;
       case 'backup': offerFile(`fieldmemo-backup-${today()}.json`, JSON.stringify(db), 'application/json', 'Back up all data'); break;
       case 'restore': restorePrompt(); break;
+      case 'forgot': { const email = $('#lg-email').value.trim();
+        if (!email) { toast('Type your email first'); $('#lg-email').focus(); break; }
+        if (!navigator.onLine) { toast('No signal. Try again when you have signal.'); break; }
+        b.disabled = true;
+        fetch(`${SYNC.url}/auth/v1/recover?redirect_to=${encodeURIComponent(location.origin + location.pathname)}`, { method: 'POST', headers: { apikey: SYNC.key, 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) })
+          .then((r) => { b.disabled = false; toast(r.ok ? 'Check your email for a link to set your password' : r.status === 429 ? 'Too many emails sent. Try again in an hour.' : 'Could not send the email'); })
+          .catch(() => { b.disabled = false; toast('Could not reach the server'); }); } break;
       case 'all': allFilter = b.dataset.f || (myRole() === 'office' ? 'approved' : canApprove() ? 'pm' : 'all'); allSearch = ''; go({ name: 'all' }); break;
       case 'pmsend': { const t = ticket(view.id); t.approval = { status: 'sent', sentBy: db.settings.supervisor || auth?.email || '', sentAt: Date.now() }; save(); rerenderKeepScroll(); toast('Sent to the project manager'); } break;
       case 'pmrecall': { const t = ticket(view.id); t.approval = null; save(); rerenderKeepScroll(); } break;
@@ -807,6 +839,19 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
   document.addEventListener('submit', (e) => {
     e.preventDefault();
     const f = e.target;
+    if (f.id === 'passform') {
+      const name = $('#sp-name').value.trim(), p1 = $('#sp-pass').value, p2 = $('#sp-pass2').value, btn = $('#sp-go');
+      if (!name) { toast('Enter your name'); return; }
+      if (p1.length < 8) { toast('Use at least 8 characters'); return; }
+      if (p1 !== p2) { toast('The two passwords do not match'); return; }
+      btn.disabled = true; btn.textContent = 'Saving…';
+      api('/auth/v1/user', { method: 'PUT', body: JSON.stringify({ password: p1 }) }).then(() => {
+        setPass = false; db.settings.supervisor = name;
+        db.jobs = db.jobs.filter((j) => !j.sample); db.tickets = db.tickets.filter((t) => !t.sample);
+        save(); stack.length = 0; view = { name: 'jobs' }; render(); toast('Password saved. You are signed in.'); runSync();
+      }).catch((err) => { btn.disabled = false; btn.textContent = 'Save password'; toast('Could not save: ' + err.message); });
+      return;
+    }
     if (f.id === 'loginform') {
       const name = $('#lg-name').value.trim(), email = $('#lg-email').value.trim(), pass = $('#lg-pass').value, btn = $('#lg-go');
       if (!name) { toast('Enter your name'); return; }
