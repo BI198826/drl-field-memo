@@ -1,0 +1,606 @@
+<title>DRL Field Memo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap">
+<style>
+/* Layout: single-column field tool. Sticky steel top bar, stacked form sections with big tap targets; a paper "sheet" view that mirrors the DRL Field Memo form. */
+:root {
+  --bg: #f1f2ef;
+  --surface: #ffffff;
+  --ink: #16191c;
+  --muted: #5a6067;
+  --line: #d3d6d0;
+  --accent: #e8a400;
+  --accent-ink: #1a1400;
+  --steel: #263746;
+  --bar-ink: #ffffff;
+  --good: #1f7a3d;
+  --bad: #b3261e;
+  --chip: #e9ebe5;
+  --display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --paper-font: "Times New Roman", Times, Georgia, serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121417; --surface: #1c1f23; --ink: #eef0ec; --muted: #a3a9ae; --line: #343940;
+  --accent: #ffbf1f; --accent-ink: #1a1400; --steel: #1d2a35; --bar-ink: #eef0ec; --good: #5cc17d; --bad: #ff8a80; --chip: #272b30;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #121417; --surface: #1c1f23; --ink: #eef0ec; --muted: #a3a9ae; --line: #343940;
+  --accent: #ffbf1f; --accent-ink: #1a1400; --steel: #1d2a35; --bar-ink: #eef0ec; --good: #5cc17d; --bad: #ff8a80; --chip: #272b30;
+  color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 17px; line-height: 1.4; -webkit-tap-highlight-color: transparent; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--steel); }
+button, input, select, textarea { font: inherit; color: inherit; }
+
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--steel); color: var(--bar-ink);
+  padding-block: 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; align-items: center; gap: 10px; min-height: 56px; }
+.bar h1 { font-family: var(--display); font-weight: 700; font-size: 22px; letter-spacing: .03em; margin: 0; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase; }
+.bar .back, .bar .icon { background: transparent; border: 0; color: inherit; font-size: 30px; padding: 2px 10px; margin-left: -10px; cursor: pointer; line-height: 1; min-height: 44px; }
+.bar .icon { margin: 0 -10px 0 0; font-size: 24px; }
+.bar .tag { font-family: var(--display); font-size: 13px; letter-spacing: .08em; background: var(--accent); color: var(--accent-ink); padding: 2px 8px; border-radius: 3px; text-transform: uppercase; }
+.mark { font-family: var(--display); font-weight: 800; font-size: 24px; letter-spacing: -.01em; border: 2px solid currentColor; padding: 0 5px; line-height: 1.1; }
+
+main { padding-block: 16px 120px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+form.stack { display: flex; flex-direction: column; gap: 18px; }
+
+.section { display: flex; flex-direction: column; gap: 10px; }
+.section > h2 { font-family: var(--display); font-size: 16px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.section > h2 .sub { font-family: var(--body); letter-spacing: 0; text-transform: none; font-size: 15px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.list { display: flex; flex-direction: column; gap: 8px; }
+.row-btn { width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; cursor: pointer;
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; }
+.row-btn .t { font-weight: 700; font-size: 18px; min-width: 0; overflow-wrap: anywhere; }
+.row-btn .m { color: var(--muted); font-size: 15px; grid-column: 1; min-width: 0; overflow-wrap: anywhere; }
+.row-btn .r { grid-row: 1 / span 2; grid-column: 2; text-align: right; font-family: var(--display); font-weight: 700; font-size: 22px; font-variant-numeric: tabular-nums; }
+.row-btn .r small { display: block; font-family: var(--body); font-weight: 500; font-size: 13px; color: var(--muted); }
+
+.pill { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--chip); color: var(--muted); vertical-align: middle; }
+.pill.signed { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+.pill.draft { background: color-mix(in srgb, var(--accent) 28%, transparent); color: var(--ink); }
+
+label.f { display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 600; color: var(--muted); min-width: 0; }
+input, select, textarea { width: 100%; min-height: 48px; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 6px; background: var(--surface); font-size: 17px; }
+input[type="time"], input[type="date"] { min-width: 0; }
+textarea { min-height: 96px; resize: vertical; }
+input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid-lab { display: grid; grid-template-columns: 1fr 1fr 0.8fr; gap: 8px; align-items: end; }
+.grid-mat { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+.btn { min-height: 48px; padding: 10px 16px; border-radius: 6px; border: 1.5px solid var(--line); background: var(--surface); font-weight: 700; cursor: pointer; font-size: 16px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
+.btn.ghost { border-style: dashed; color: var(--muted); }
+.btn.block { width: 100%; }
+.btn[disabled] { opacity: .5; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.btns .btn { flex: 1 1 140px; }
+
+.fab { position: fixed; right: calc(env(safe-area-inset-right, 0px) + 16px); bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); z-index: 6;
+  background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 999px; padding: 16px 22px; font-weight: 700; font-size: 17px; box-shadow: 0 4px 14px rgba(0,0,0,.28); cursor: pointer; }
+
+.line-item { border: 1px solid var(--line); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 8px; background: var(--bg); }
+.line-item .hdr { display: flex; gap: 6px; align-items: center; }
+.line-item .hdr input { flex: 1; min-width: 0; }
+.x { min-width: 44px; min-height: 44px; border: 0; background: transparent; color: var(--bad); font-size: 24px; cursor: pointer; }
+.mini { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.total-out { min-height: 48px; display: flex; align-items: center; justify-content: flex-end; font-family: var(--display); font-weight: 700; font-size: 22px; font-variant-numeric: tabular-nums; padding-right: 4px; }
+
+.totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tot { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+.tot .k { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.tot .v { font-family: var(--display); font-weight: 700; font-size: 26px; font-variant-numeric: tabular-nums; }
+
+.sig-wrap { border: 1.5px dashed var(--muted); border-radius: 6px; background: #fff; position: relative; touch-action: none; }
+.sig-wrap canvas { display: block; width: 100%; height: 150px; }
+.sig-wrap .hint { position: absolute; left: 12px; bottom: 8px; color: #8a8f94; font-size: 13px; pointer-events: none; }
+.sig-done { display: flex; flex-direction: column; gap: 6px; }
+.sig-done img { background: #fff; border: 1px solid var(--line); border-radius: 6px; max-height: 110px; width: auto; align-self: flex-start; }
+
+.empty { text-align: center; color: var(--muted); padding: 28px 12px; border: 1.5px dashed var(--line); border-radius: 8px; }
+.note { font-size: 14px; color: var(--muted); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 15px; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+
+.modal { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.5); display: flex; align-items: flex-end; justify-content: center; }
+.sheet-ui { background: var(--surface); width: 100%; max-width: 720px; border-radius: 14px 14px 0 0;
+  padding-top: 18px; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 12px; max-height: 90vh; overflow-y: auto; }
+.sheet-ui h3 { margin: 0; font-family: var(--display); font-size: 22px; text-transform: uppercase; letter-spacing: .03em; }
+.sheet-ui textarea { font-family: ui-monospace, Menlo, monospace; font-size: 12px; min-height: 150px; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 86px); z-index: 30; background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 6px; font-weight: 600; max-width: calc(100% - 32px); }
+
+/* ---------- Paper sheet: mirrors the DRL Time & Material / Field Memo form. Always black on white. ---------- */
+.paper-scroll { overflow: hidden; }
+.paper .hrs .v { white-space: nowrap; font-size: 12px; }
+.paper { background: #fff; color: #000; font-family: var(--paper-font); font-size: 13px; line-height: 1.35; width: 680px; padding: 28px 30px 34px; box-shadow: 0 2px 10px rgba(0,0,0,.18); border-radius: 2px; }
+.paper .logo { display: inline-flex; flex-direction: column; align-items: flex-start; margin-bottom: 16px; }
+.paper .logo b { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; font-weight: 800; font-size: 54px; line-height: .85; letter-spacing: -.02em; }
+.paper .logo span { font-family: Arial, Helvetica, sans-serif; font-size: 10px; letter-spacing: .14em; margin-top: 4px; }
+.paper .hd { display: grid; grid-template-columns: 1.4fr 1fr; gap: 4px 28px; margin-bottom: 14px; }
+.paper .fl { display: flex; gap: 4px; align-items: baseline; font-size: 14px; }
+.paper .fl > span:first-child { white-space: nowrap; }
+.paper .fl .v { flex: 1; border-bottom: 1px solid #000; min-height: 18px; padding: 0 4px; font-family: Arial, Helvetica, sans-serif; font-size: 13px; overflow-wrap: anywhere; }
+.paper h4 { font-size: 14px; font-weight: 700; text-decoration: underline; text-transform: uppercase; margin: 14px 0 4px; }
+.paper .ruled { font-family: Arial, Helvetica, sans-serif; font-size: 13px; background-image: linear-gradient(#000 1px, transparent 1px); background-size: 100% 22px; background-position: 0 21px; line-height: 22px; min-height: 66px; white-space: pre-wrap; overflow-wrap: anywhere; padding: 0 4px; }
+.paper .lab { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 28px; }
+.paper .lab .p { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
+.paper .lab .hrs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.paper table { width: 100%; border-collapse: collapse; }
+.paper .mats { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.paper th { font-weight: 400; text-align: left; border-bottom: 1px solid #000; font-size: 14px; padding: 0 4px; }
+.paper th + th, .paper td + td { border-left: 1px solid #000; text-align: center; width: 62px; }
+.paper td { border-bottom: 1px solid #000; height: 22px; font-family: Arial, Helvetica, sans-serif; font-size: 12px; padding: 0 4px; overflow-wrap: anywhere; }
+.paper .equip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 24px; }
+.paper .equip div { border-bottom: 1px solid #000; height: 22px; font-family: Arial, Helvetica, sans-serif; font-size: 12px; padding: 3px 4px 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.paper .sigs { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; margin-top: 26px; }
+.paper .sig { display: flex; flex-direction: column; }
+.paper .sig .img { height: 60px; border-bottom: 1px solid #000; display: flex; align-items: flex-end; justify-content: center; }
+.paper .sig .img img { max-height: 58px; max-width: 100%; }
+.paper .sig .cap { text-align: center; font-size: 14px; }
+.paper .sig .who { text-align: center; font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #333; }
+.paper .foot { margin-top: 14px; font-family: Arial, Helvetica, sans-serif; font-size: 10px; color: #444; display: flex; justify-content: space-between; }
+
+@media (max-width: 400px) { .grid-lab { grid-template-columns: 1fr 1fr; } .grid-lab .total-wrap { grid-column: 1 / -1; } .totals .v { font-size: 22px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+
+@media print {
+  @page { size: letter; margin: 0.4in; }
+  body::before, .bar, .fab, .no-print, .toast, .modal { display: none !important; }
+  :root { padding: 0 !important; }
+  body { background: #fff !important; }
+  .paper, .paper * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  main { padding: 0 !important; max-width: none; gap: 0; }
+  .paper-scroll { overflow: visible; margin: 0; padding: 0; }
+  .paper { box-shadow: none; width: auto; padding: 0; zoom: 1 !important; }
+}
+</style>
+
+<div id="app"></div>
+
+<script>
+(function () {
+  'use strict';
+  const KEY = 'drl-fieldmemo.v1';
+  const UOM = ['ea', 'lf', 'ft', 'sf', 'sheet', 'box', 'bag', 'pail', 'gal', 'L', 'tube', 'roll', 'bundle', 'cy', 'm', 'm²', 'kg', 'lot'];
+  const inFrame = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
+
+  // ---------- storage ----------
+  function load() { try { const raw = localStorage.getItem(KEY); if (raw) return JSON.parse(raw); } catch (e) {} return null; }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { toast('Could not save on this device'); } }
+  const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
+  const isoDay = (d) => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 10); };
+  const today = () => isoDay(new Date());
+
+  function sampleData() {
+    const jobId = uid(), y = new Date(); y.setDate(y.getDate() - 1);
+    return {
+      settings: { company: 'Dynamic Restoration Ltd', short: 'DRLTD', supervisor: '' },
+      nextNo: 1003,
+      jobs: [{ id: jobId, project: 'Parkade Level 2 Slab Repair (Example)', location: '1450 Example Ave', client: 'Example Property Mgmt', clientRep: 'J. Lee', po: 'PO-4471', pm: 'R. Singh', sample: true, created: Date.now() }],
+      tickets: [
+        { id: uid(), jobId, no: 1001, date: isoDay(y), supervisor: 'M. Ortiz',
+          scope: 'Additional concrete removal at column C4 as directed by client rep. Chip out delaminated area approx. 12 sf, clean and prime rebar.',
+          labour: [{ name: 'M. Ortiz', start: '07:00', finish: '15:30', brk: 30 }, { name: 'J. Pham', start: '07:00', finish: '15:30', brk: 30 }, { name: 'T. Reyes', start: '07:00', finish: '11:00', brk: 0 }],
+          materials: [{ desc: 'Repair mortar 25 kg', uom: 'bag', qty: 6 }, { desc: 'Rebar primer', uom: 'pail', qty: 1 }, { desc: '6 mil poly', uom: 'roll', qty: 1 }],
+          equipment: ['Hilti TE-1000 breaker', 'Hydro-vac (3 hrs)'],
+          notes: 'Work requested on site by J. Lee. Area blocked until 9 am by parked vehicles.',
+          sigs: { co: { name: 'M. Ortiz', img: '', at: 0 }, client: { name: '', img: '', at: 0 } }, sample: true },
+        { id: uid(), jobId, no: 1002, date: today(), supervisor: 'M. Ortiz', scope: 'Form and pour patch at column C4.',
+          labour: [{ name: 'M. Ortiz', start: '07:00', finish: '12:00', brk: 0 }, { name: 'J. Pham', start: '07:00', finish: '12:00', brk: 0 }],
+          materials: [{ desc: 'Form ply 3/4"', uom: 'sheet', qty: 2 }], equipment: ['Mortar mixer'], notes: '',
+          sigs: { co: { name: '', img: '', at: 0 }, client: { name: '', img: '', at: 0 } }, sample: true }
+      ]
+    };
+  }
+
+  let db = load();
+  if (!db) { db = sampleData(); save(); }
+
+  // ---------- helpers ----------
+  const $ = (s, r = document) => r.querySelector(s);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const n = (v) => { const x = parseFloat(v); return isFinite(x) ? x : 0; };
+  const fmtH = (h) => (Math.round(h * 100) / 100).toString();
+  const fmtDate = (s) => { if (!s) return ''; const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }); };
+  const fmtTime = (t) => { if (!t) return ''; const [h, m] = t.split(':').map(Number); const ap = h >= 12 ? 'pm' : 'am'; return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${ap}`; };
+  const job = (id) => db.jobs.find((j) => j.id === id);
+  const ticket = (id) => db.tickets.find((t) => t.id === id);
+  const jobTickets = (id) => db.tickets.filter((t) => t.jobId === id).sort((a, b) => (b.date + String(b.no).padStart(8, '0')).localeCompare(a.date + String(a.no).padStart(8, '0')));
+  function hoursOf(l) {
+    if (!l.start || !l.finish) return 0;
+    const [a, b] = l.start.split(':').map(Number), [c, d] = l.finish.split(':').map(Number);
+    let mins = (c * 60 + d) - (a * 60 + b); if (mins < 0) mins += 1440; // past midnight
+    return Math.max(0, (mins - n(l.brk)) / 60);
+  }
+  const ticketHours = (t) => t.labour.reduce((s, l) => s + hoursOf(l), 0);
+  const signedState = (t) => (t.sigs.client.img ? (t.sigs.co.img ? 'signed' : 'client') : 'draft');
+  const statusPill = (t) => ({ signed: '<span class="pill signed">Signed</span>', client: '<span class="pill signed">Client signed</span>', draft: '<span class="pill draft">Not signed</span>' }[signedState(t)]);
+
+  let toastTimer;
+  function toast(msg) {
+    let el = $('#toast'); if (!el) { el = document.createElement('div'); el.id = 'toast'; el.className = 'toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
+    el.textContent = msg; el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => (el.hidden = true), 2400);
+  }
+
+  // ---------- in-memory navigation ----------
+  let view = { name: 'jobs' };
+  const stack = [];
+  function go(v) { stack.push(view); view = v; render(); window.scrollTo(0, 0); }
+  function back() { view = stack.pop() || { name: 'jobs' }; render(); window.scrollTo(0, 0); }
+  function bar(title, o = {}) {
+    return `<header class="bar">${o.back ? '<button class="back" data-act="back" aria-label="Back">&#8249;</button>' : '<span class="mark" aria-hidden="true">DRL</span>'}
+      <h1>${esc(title)}</h1>${o.tag ? `<span class="tag">${esc(o.tag)}</span>` : ''}
+      ${o.settings ? '<button class="icon" data-act="settings" aria-label="Settings">&#9881;</button>' : ''}</header>`;
+  }
+
+  // ---------- views ----------
+  function vJobs() {
+    const jobs = db.jobs.slice().sort((a, b) => (b.created || 0) - (a.created || 0));
+    const items = jobs.map((j) => {
+      const ts = jobTickets(j.id), h = ts.reduce((s, t) => s + ticketHours(t), 0);
+      return `<button class="row-btn" data-act="job" data-id="${j.id}">
+        <span class="t">${esc(j.project)}</span>
+        <span class="r">${fmtH(h)}<small>man-hrs</small></span>
+        <span class="m">${esc([j.client, j.po && 'PO ' + j.po].filter(Boolean).join(' · '))}${j.client || j.po ? ' · ' : ''}${ts.length} memo${ts.length === 1 ? '' : 's'}</span></button>`;
+    }).join('');
+    return bar('Field Memos', { settings: true }) + `<main>
+      <section class="section"><h2>Projects</h2>
+      <div class="list">${items || '<div class="empty">No projects yet. Tap <b>New project</b> to add the first one.</div>'}</div></section>
+      ${db.jobs.some((j) => j.sample) ? '<p class="note">The example project shows how memos look. Open it and tap Edit to delete it when you are ready.</p>' : ''}
+      </main><button class="fab" data-act="newjob">+ New project</button>`;
+  }
+
+  function vJobForm() {
+    const j = view.id ? job(view.id) : { project: '', location: '', client: '', clientRep: '', po: '', pm: '' };
+    return bar(view.id ? 'Edit project' : 'New project', { back: true }) + `<main><form id="jobform" class="card">
+      <label class="f">Project<input id="j-project" required value="${esc(j.project)}" placeholder="e.g. Parkade Level 2 Slab Repair"></label>
+      <label class="f">Project location<input id="j-location" value="${esc(j.location)}"></label>
+      <label class="f">Client<input id="j-client" value="${esc(j.client)}"></label>
+      <label class="f">Client representative<input id="j-clientRep" value="${esc(j.clientRep)}"></label>
+      <div class="grid2"><label class="f">Client P.O.#<input id="j-po" value="${esc(j.po)}"></label>
+      <label class="f">${esc(db.settings.short)} PM<input id="j-pm" value="${esc(j.pm)}"></label></div>
+      <button class="btn primary block" type="submit">Save project</button>
+      ${view.id ? '<button class="btn danger block" type="button" data-act="deljob">Delete project and its memos</button>' : ''}
+      </form></main>`;
+  }
+
+  function vJob() {
+    const j = job(view.id); if (!j) { view = { name: 'jobs' }; return vJobs(); }
+    const ts = jobTickets(j.id), h = ts.reduce((s, t) => s + ticketHours(t), 0), unsigned = ts.filter((t) => !t.sigs.client.img).length;
+    const items = ts.map((t) => `<button class="row-btn" data-act="ticket" data-id="${t.id}">
+        <span class="t">#${t.no} · ${esc(fmtDate(t.date))}</span><span class="r">${fmtH(ticketHours(t))}<small>hrs</small></span>
+        <span class="m">${statusPill(t)} ${esc((t.scope || '').slice(0, 70))}</span></button>`).join('');
+    return bar(j.project, { back: true }) + `<main>
+      <div class="card"><dl class="kv">
+        ${[['Location', j.location], ['Client', j.client], ['Client rep', j.clientRep], ['Client P.O.#', j.po], [db.settings.short + ' PM', j.pm]].filter((x) => x[1]).map((x) => `<dt>${esc(x[0])}</dt><dd>${esc(x[1])}</dd>`).join('')}
+      </dl><button class="btn" data-act="editjob">Edit project</button></div>
+      <div class="totals">
+        <div class="tot"><div class="k">Memos</div><div class="v">${ts.length}</div></div>
+        <div class="tot"><div class="k">Man-hours</div><div class="v">${fmtH(h)}</div></div>
+        <div class="tot"><div class="k">Unsigned</div><div class="v">${unsigned}</div></div></div>
+      <div class="btns"><button class="btn" data-act="export" ${ts.length ? '' : 'disabled'}>Export all memos (CSV)</button></div>
+      <section class="section"><h2>Field memos</h2><div class="list">${items || '<div class="empty">No memos yet. Tap <b>New memo</b> to log the crew, materials and equipment for a day.</div>'}</div></section>
+      </main><button class="fab" data-act="newticket">+ New memo</button>`;
+  }
+
+  let draft = null;
+  function blankTicket(jobId) {
+    const prev = jobTickets(jobId)[0];
+    return { id: uid(), jobId, no: db.nextNo, date: today(), supervisor: prev?.supervisor || db.settings.supervisor || '', scope: '',
+      labour: prev ? prev.labour.map((l) => ({ ...l })) : [{ name: db.settings.supervisor || '', start: '07:00', finish: '15:30', brk: 30 }],
+      materials: [], equipment: [], notes: '', sigs: { co: { name: '', img: '', at: 0 }, client: { name: '', img: '', at: 0 } }, isNew: true };
+  }
+
+  function vEdit() {
+    const t = draft, j = job(t.jobId);
+    const uomOpts = (sel) => UOM.concat(UOM.includes(sel) || !sel ? [] : [sel]).map((u) => `<option ${u === sel ? 'selected' : ''}>${esc(u)}</option>`).join('');
+    const brkOpts = (sel) => [0, 15, 30, 45, 60].map((m) => `<option value="${m}" ${n(sel) === m ? 'selected' : ''}>${m ? m + ' min' : 'None'}</option>`).join('');
+    const labour = t.labour.map((l, i) => `<div class="line-item" data-list="labour" data-i="${i}">
+      <div class="hdr"><input id="l-name-${i}" data-f="name" value="${esc(l.name)}" placeholder="Name" list="crewnames" aria-label="Name"><button type="button" class="x" data-act="rm" aria-label="Remove worker">&times;</button></div>
+      <div class="grid-lab"><label class="f"><span class="mini">Start</span><input id="l-start-${i}" data-f="start" type="time" value="${esc(l.start)}"></label>
+      <label class="f"><span class="mini">Finish</span><input id="l-finish-${i}" data-f="finish" type="time" value="${esc(l.finish)}"></label>
+      <label class="f total-wrap"><span class="mini">Unpaid break</span><select id="l-brk-${i}" data-f="brk">${brkOpts(l.brk)}</select></label></div>
+      <div class="note">Total: <b class="lt" data-i="${i}">${fmtH(hoursOf(l))} hrs</b></div>
+    </div>`).join('');
+    const mats = t.materials.map((m, i) => `<div class="line-item" data-list="materials" data-i="${i}">
+      <div class="hdr"><input id="m-desc-${i}" data-f="desc" value="${esc(m.desc)}" placeholder="Description" list="matnames" aria-label="Description"><button type="button" class="x" data-act="rm" aria-label="Remove material">&times;</button></div>
+      <div class="grid-mat"><label class="f"><span class="mini">UOM</span><select id="m-uom-${i}" data-f="uom">${uomOpts(m.uom)}</select></label>
+      <label class="f"><span class="mini">Qty</span><input id="m-qty-${i}" data-f="qty" inputmode="decimal" value="${esc(m.qty)}"></label></div>
+    </div>`).join('');
+    const eq = t.equipment.map((e, i) => `<div class="line-item" data-list="equipment" data-i="${i}"><div class="hdr">
+      <input id="e-${i}" data-f="_" value="${esc(e)}" placeholder="Equipment and hours, e.g. Scissor lift (4 hrs)" list="eqnames" aria-label="Equipment">
+      <button type="button" class="x" data-act="rm" aria-label="Remove equipment">&times;</button></div></div>`).join('');
+    const uniq = (arr) => [...new Set(arr.filter(Boolean))];
+    const names = uniq(db.tickets.flatMap((x) => x.labour.map((l) => l.name)));
+    const matNames = uniq(db.tickets.flatMap((x) => x.materials.map((m) => m.desc)));
+    const eqNames = uniq(db.tickets.flatMap((x) => x.equipment));
+    return bar(`Memo #${t.no}`, { back: true, tag: t.isNew ? 'New' : 'Editing' }) + `<main><form id="tform" class="stack">
+      <datalist id="crewnames">${names.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
+      <datalist id="matnames">${matNames.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
+      <datalist id="eqnames">${eqNames.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
+      <div class="card"><div class="note">${esc(j.project)}</div>
+        <div class="grid2"><label class="f">Date<input id="t-date" type="date" value="${esc(t.date)}"></label>
+        <label class="f">${esc(db.settings.short)} Supervisor<input id="t-sup" value="${esc(t.supervisor)}" list="crewnames"></label></div>
+        <label class="f">Scope of work<textarea id="t-scope" placeholder="What was done, where, and who directed it">${esc(t.scope)}</textarea></label></div>
+      <section class="section"><h2>Skilled labour <span class="sub" id="hrs-total">${fmtH(ticketHours(t))} hrs</span></h2>${labour}
+        <button type="button" class="btn ghost block" data-act="add" data-list="labour">+ Add worker</button></section>
+      <section class="section"><h2>Materials</h2>${mats}
+        <button type="button" class="btn ghost block" data-act="add" data-list="materials">+ Add material</button></section>
+      <section class="section"><h2>Speciality equipment</h2>${eq}
+        <button type="button" class="btn ghost block" data-act="add" data-list="equipment">+ Add equipment</button></section>
+      <section class="section"><h2>Notes</h2><textarea id="t-notes" aria-label="Notes" placeholder="Delays, site conditions, instructions received">${esc(t.notes)}</textarea></section>
+      <button class="btn primary block" type="submit">Save memo</button>
+      ${t.isNew ? '' : '<button class="btn danger block" type="button" data-act="delticket">Delete memo</button>'}
+      </form></main>`;
+  }
+
+  function paperHTML(t) {
+    const j = job(t.jobId), s = db.settings;
+    const fl = (k, v) => `<div class="fl"><span>${k}</span><span class="v">${esc(v)}</span></div>`;
+    const lab = t.labour.length ? t.labour : [];
+    const labRows = Array.from({ length: Math.max(6, lab.length + (lab.length % 2)) }, (_, i) => lab[i] || null);
+    const labCell = (l) => `<div class="p">${fl('Name:', l ? l.name : '')}<div class="hrs">${fl('Start:', l ? fmtTime(l.start) : '')}${fl('Finish:', l ? fmtTime(l.finish) : '')}${fl('Total:', l ? fmtH(hoursOf(l)) : '')}</div></div>`;
+    const half = Math.ceil(labRows.length / 2);
+    const mats = t.materials, mRows = Math.max(4, Math.ceil(mats.length / 2));
+    const matTable = (off) => `<table><thead><tr><th>Description</th><th>UOM</th><th>QTY</th></tr></thead><tbody>${Array.from({ length: mRows }, (_, i) => { const m = mats[off + i]; return `<tr><td>${m ? esc(m.desc) : ''}</td><td>${m ? esc(m.uom) : ''}</td><td>${m ? esc(m.qty) : ''}</td></tr>`; }).join('')}</tbody></table>`;
+    const eqCells = Array.from({ length: Math.max(12, Math.ceil(t.equipment.length / 3) * 3) }, (_, i) => t.equipment[i] || '');
+    // fill equipment column by column like the paper form
+    const rowsE = eqCells.length / 3, eqOrdered = [];
+    for (let r = 0; r < rowsE; r++) for (let c = 0; c < 3; c++) eqOrdered.push(eqCells[c * rowsE + r]);
+    const sig = (sg, cap) => `<div class="sig"><div class="img">${sg.img ? `<img src="${sg.img}" alt="Signature">` : ''}</div><div class="cap">${cap}</div><div class="who">${esc(sg.name)}${sg.at ? ' · ' + esc(new Date(sg.at).toLocaleString()) : ''}</div></div>`;
+    return `<div class="paper-scroll"><article class="paper" aria-label="Printable field memo">
+      <div class="logo"><b>${esc((s.company || 'DRL').split(/\s+/).map((w) => w[0]).join('').toUpperCase())}</b><span>${esc((s.company || '').toUpperCase())}</span></div>
+      <div class="hd"><div>${fl('Project:', j.project)}${fl('Project Location:', j.location)}${fl('Client:', j.client)}${fl('Client Representative:', j.clientRep)}</div>
+        <div>${fl('Client P.O.#:', j.po)}${fl(esc(s.short) + '.PM:', j.pm)}${fl(esc(s.short) + ' Supervisor:', t.supervisor)}${fl('Date:', t.date)}</div></div>
+      <h4>Time &amp; Material/Field Memo Form &nbsp;Scope of Work: <span style="font-weight:400;text-decoration:none;text-transform:none;float:right">No. ${t.no}</span></h4>
+      <div class="ruled">${esc(t.scope)}</div>
+      <h4>Skilled Labour <span style="font-weight:400;text-decoration:none;text-transform:none">(total ${fmtH(ticketHours(t))} hrs)</span></h4>
+      <div class="lab"><div>${labRows.slice(0, half).map(labCell).join('')}</div><div>${labRows.slice(half).map(labCell).join('')}</div></div>
+      <h4>Materials</h4><div class="mats">${matTable(0)}${matTable(mRows)}</div>
+      <h4>Speciality Equipment:</h4><div class="equip">${eqOrdered.map((e) => `<div>${esc(e)}</div>`).join('')}</div>
+      <h4>Notes:</h4><div class="ruled" style="min-height:44px">${esc(t.notes)}</div>
+      <div class="sigs">${sig(t.sigs.co, esc(s.short) + '. Representative')}${sig(t.sigs.client, 'Client Representative')}</div>
+      <div class="foot"><span>Memo #${t.no}</span><span>Generated ${esc(new Date().toLocaleDateString())}</span></div>
+    </article></div>`;
+  }
+
+  function sigBlock(t, who, label) {
+    const sg = t.sigs[who];
+    if (sg.img) return `<div class="card"><div class="mini">${label}</div><div class="sig-done"><img src="${sg.img}" alt="${label} signature"><b>${esc(sg.name)}</b>
+      <span class="note">Signed ${esc(new Date(sg.at).toLocaleString())}</span></div><button class="btn no-print" data-act="clearsig" data-who="${who}">Clear signature</button></div>`;
+    return `<div class="card"><div class="mini">${label}</div>
+      <label class="f">Printed name<input id="s-name-${who}" value="${esc(sg.name || (who === 'client' ? job(t.jobId).clientRep : t.supervisor) || '')}"></label>
+      <div class="sig-wrap"><canvas id="sig-${who}" data-who="${who}"></canvas><span class="hint">Sign here</span></div>
+      <div class="btns"><button class="btn" data-act="sigclear" data-who="${who}">Clear</button><button class="btn primary" data-act="sign" data-who="${who}">Save signature</button></div></div>`;
+  }
+
+  function vTicket() {
+    const t = ticket(view.id); if (!t) { view = stack.pop() || { name: 'jobs' }; return render(), ''; }
+    const s = db.settings;
+    return bar(`Memo #${t.no}`, { back: true }) + `<main>
+      <div class="btns no-print"><button class="btn" data-act="editticket">Edit memo</button>
+        ${inFrame ? '' : '<button class="btn primary" data-act="print">Print / Save PDF</button>'}
+        <button class="btn" data-act="exportone">CSV</button></div>
+      ${paperHTML(t)}
+      <section class="section no-print"><h2>Sign-off ${statusPill(t)}</h2>
+        ${sigBlock(t, 'client', 'Client Representative')}
+        ${sigBlock(t, 'co', esc(s.short) + '. Representative')}
+        <p class="note" style="margin:0">Editing a memo after it is signed clears both signatures.</p></section>
+      </main>`;
+  }
+
+  function vSettings() {
+    const s = db.settings;
+    return bar('Settings', { back: true }) + `<main><form id="sform" class="stack">
+      <div class="card"><label class="f">Company name<input id="s-company" value="${esc(s.company)}"></label>
+        <label class="f">Short name on forms<input id="s-short" value="${esc(s.short)}"></label>
+        <label class="f">Default supervisor<input id="s-sup" value="${esc(s.supervisor)}"></label>
+        <label class="f">Next memo number<input id="s-next" inputmode="numeric" value="${esc(db.nextNo)}"></label></div>
+      <button class="btn primary block" type="submit">Save settings</button>
+      <section class="section"><h2>Backup</h2><div class="card">
+        <p class="note" style="margin:0">Memos are stored on this phone only. Back up now and then, and before switching phones.</p>
+        <div class="btns"><button type="button" class="btn" data-act="backup">Back up all data</button><button type="button" class="btn" data-act="restore">Restore backup</button></div>
+      </div></section></form></main>`;
+  }
+
+  function render() {
+    const v = { jobs: vJobs, jobform: vJobForm, job: vJob, edit: vEdit, ticket: vTicket, settings: vSettings }[view.name] || vJobs;
+    $('#app').innerHTML = v();
+    document.querySelectorAll('canvas[data-who]').forEach(initSig);
+    fitPaper();
+  }
+  // shrink the letter-size sheet to fit the phone screen; print uses full size
+  function fitPaper() {
+    const wrap = $('.paper-scroll'), paper = $('.paper'); if (!wrap || !paper) return;
+    paper.style.zoom = Math.min(1, wrap.clientWidth / 680);
+  }
+  window.addEventListener('resize', fitPaper);
+
+  // ---------- draft binding ----------
+  function readDraft() {
+    const f = $('#tform'); if (!draft || !f) return;
+    draft.date = $('#t-date').value; draft.supervisor = $('#t-sup').value; draft.scope = $('#t-scope').value; draft.notes = $('#t-notes').value;
+    f.querySelectorAll('.line-item').forEach((li) => {
+      const list = draft[li.dataset.list], i = +li.dataset.i;
+      li.querySelectorAll('[data-f]').forEach((inp) => { if (inp.dataset.f === '_') list[i] = inp.value; else list[i][inp.dataset.f] = inp.value; });
+    });
+  }
+
+  // ---------- signature pads ----------
+  const sigDirty = {};
+  function initSig(cv) {
+    const who = cv.dataset.who; sigDirty[who] = false;
+    const ratio = window.devicePixelRatio || 1, rect = cv.getBoundingClientRect();
+    cv.width = Math.max(1, rect.width * ratio); cv.height = Math.max(1, rect.height * ratio);
+    const ctx = cv.getContext('2d'); ctx.setTransform(ratio, 0, 0, ratio, 0, 0); ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#111'; ctx.fillStyle = '#111';
+    if (cv._bound) return; cv._bound = true;
+    let drawing = false, last = null;
+    const pos = (e) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    cv.addEventListener('pointerdown', (e) => { drawing = true; last = pos(e); try { cv.setPointerCapture(e.pointerId); } catch (_) {} const c = cv.getContext('2d'); c.beginPath(); c.arc(last.x, last.y, 1.2, 0, 7); c.fill(); sigDirty[who] = true; });
+    cv.addEventListener('pointermove', (e) => { if (!drawing) return; const p = pos(e), c = cv.getContext('2d'); c.beginPath(); c.moveTo(last.x, last.y); c.lineTo(p.x, p.y); c.stroke(); last = p; });
+    const end = () => (drawing = false); cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+  }
+  function clearPad(who) { const cv = $('#sig-' + who); if (!cv) return; cv.getContext('2d').clearRect(0, 0, cv.width, cv.height); sigDirty[who] = false; }
+  function trimmedPNG(cv) {
+    // crop the drawn area so signatures sit neatly on the printed line
+    const ctx = cv.getContext('2d'), { width: w, height: h } = cv, data = ctx.getImageData(0, 0, w, h).data;
+    let x0 = w, y0 = h, x1 = 0, y1 = 0;
+    for (let y = 0; y < h; y += 2) for (let x = 0; x < w; x += 2) if (data[(y * w + x) * 4 + 3] > 0) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    if (x1 <= x0) return cv.toDataURL('image/png');
+    const pad = 8, o = document.createElement('canvas'); o.width = Math.min(w, x1 - x0 + pad * 2); o.height = Math.min(h, y1 - y0 + pad * 2);
+    o.getContext('2d').drawImage(cv, Math.max(0, x0 - pad), Math.max(0, y0 - pad), o.width, o.height, 0, 0, o.width, o.height);
+    return o.toDataURL('image/png');
+  }
+
+  // ---------- CSV / files ----------
+  const csvCell = (v) => { const s = String(v ?? ''); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  function toCSV(ts) {
+    const rows = [['Project', 'Location', 'Client', 'Client Rep', 'Client PO#', 'PM', 'Memo #', 'Date', 'Supervisor', 'Type', 'Name / Description', 'Start', 'Finish', 'Break (min)', 'Hours', 'UOM', 'Qty', 'Client signed by', 'Scope of work', 'Notes']];
+    ts.slice().sort((a, b) => (a.date + String(a.no).padStart(8, '0')).localeCompare(b.date + String(b.no).padStart(8, '0'))).forEach((t) => {
+      const j = job(t.jobId), base = [j.project, j.location, j.client, j.clientRep, j.po, j.pm, t.no, t.date, t.supervisor];
+      const tail = [t.sigs.client.img ? t.sigs.client.name : '', t.scope, t.notes];
+      t.labour.forEach((l) => rows.push([...base, 'Labour', l.name, l.start, l.finish, n(l.brk), fmtH(hoursOf(l)), '', '', ...tail]));
+      t.materials.forEach((m) => rows.push([...base, 'Material', m.desc, '', '', '', '', m.uom, m.qty, ...tail]));
+      t.equipment.forEach((e) => rows.push([...base, 'Equipment', e, '', '', '', '', '', '', ...tail]));
+    });
+    return rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
+  }
+  const slug = (s) => String(s).replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 40) || 'export';
+
+  function offerFile(name, text, type, title) {
+    const m = document.createElement('div'); m.className = 'modal';
+    m.innerHTML = `<div class="sheet-ui" role="dialog" aria-label="${esc(title)}"><h3>${esc(title)}</h3>
+      <p class="note" style="margin:0">${esc(name)}</p>
+      <div class="btns"><button class="btn primary" data-m="share">Send or save file</button><button class="btn" data-m="copy">Copy text</button></div>
+      <textarea id="m-text" readonly aria-label="File contents">${esc(text)}</textarea>
+      <button class="btn block" data-m="close">Close</button></div>`;
+    document.body.appendChild(m);
+    m.addEventListener('click', async (e) => {
+      const a = e.target.closest('[data-m]')?.dataset.m; if (e.target === m || a === 'close') return m.remove();
+      if (a === 'copy') { try { await navigator.clipboard.writeText(text); toast('Copied'); } catch (err) { const ta = $('#m-text', m); ta.focus(); ta.select(); toast('Text selected. Use Copy.'); } }
+      if (a === 'share') {
+        const file = new File([text], name, { type });
+        try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; } } catch (err) { if (err && err.name === 'AbortError') return; }
+        const url = URL.createObjectURL(file), link = document.createElement('a'); link.href = url; link.download = name; document.body.appendChild(link); link.click(); link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000); toast('Download started. If nothing happens, use Copy text.');
+      }
+    });
+  }
+
+  function restorePrompt() {
+    const m = document.createElement('div'); m.className = 'modal';
+    m.innerHTML = `<div class="sheet-ui" role="dialog" aria-label="Restore backup"><h3>Restore backup</h3><p class="note" style="margin:0">Pick a backup file or paste its text. This replaces everything on this phone.</p>
+      <input type="file" id="r-file" accept=".json,application/json"><textarea id="r-text" placeholder="Paste backup text" aria-label="Backup text"></textarea>
+      <div class="btns"><button class="btn" data-m="close">Cancel</button><button class="btn primary" data-m="go">Replace my data</button></div></div>`;
+    document.body.appendChild(m);
+    $('#r-file', m).addEventListener('change', (e) => { const f = e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => ($('#r-text', m).value = rd.result); rd.readAsText(f); });
+    m.addEventListener('click', (e) => {
+      const a = e.target.closest('[data-m]')?.dataset.m; if (e.target === m || a === 'close') return m.remove();
+      if (a === 'go') { try { const d = JSON.parse($('#r-text', m).value); if (!d.jobs || !d.tickets || !d.settings) throw 0; db = d; save(); m.remove(); view = { name: 'jobs' }; stack.length = 0; render(); toast('Backup restored'); } catch (err) { toast('That is not a valid backup file'); } }
+    });
+  }
+
+  // two-tap confirm, built into the page
+  const armed = {};
+  function confirmTap(btn, key, label) {
+    if (armed[key] && Date.now() - armed[key] < 4000) { delete armed[key]; return true; }
+    armed[key] = Date.now(); btn.textContent = label; return false;
+  }
+  const rerenderKeepScroll = () => { const y = window.scrollY; render(); window.scrollTo(0, y); };
+
+  // ---------- events ----------
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    const a = b.dataset.act;
+    if (b.tagName === 'BUTTON' && b.type !== 'submit') e.preventDefault();
+    switch (a) {
+      case 'back': if (view.name === 'edit') draft = null; back(); break;
+      case 'settings': go({ name: 'settings' }); break;
+      case 'newjob': go({ name: 'jobform' }); break;
+      case 'editjob': go({ name: 'jobform', id: view.id }); break;
+      case 'job': go({ name: 'job', id: b.dataset.id }); break;
+      case 'deljob': if (confirmTap(b, 'deljob', 'Tap again to delete project and all memos')) { db.tickets = db.tickets.filter((t) => t.jobId !== view.id); db.jobs = db.jobs.filter((j) => j.id !== view.id); save(); stack.length = 0; view = { name: 'jobs' }; render(); toast('Project deleted'); } break;
+      case 'newticket': draft = blankTicket(view.id); go({ name: 'edit' }); break;
+      case 'ticket': go({ name: 'ticket', id: b.dataset.id }); break;
+      case 'editticket': draft = JSON.parse(JSON.stringify(ticket(view.id))); go({ name: 'edit' }); break;
+      case 'add': readDraft(); { const L = b.dataset.list;
+        if (L === 'labour') { const p = draft.labour[draft.labour.length - 1]; draft.labour.push({ name: '', start: p?.start || '07:00', finish: p?.finish || '15:30', brk: p?.brk ?? 30 }); }
+        if (L === 'materials') draft.materials.push({ desc: '', uom: 'ea', qty: '' });
+        if (L === 'equipment') draft.equipment.push('');
+        rerenderKeepScroll();
+        const items = document.querySelectorAll(`.line-item[data-list="${L}"]`); items[items.length - 1]?.querySelector('input')?.focus(); } break;
+      case 'rm': readDraft(); { const li = b.closest('.line-item'); draft[li.dataset.list].splice(+li.dataset.i, 1); rerenderKeepScroll(); } break;
+      case 'delticket': if (confirmTap(b, 'delt', 'Tap again to delete this memo')) { db.tickets = db.tickets.filter((t) => t.id !== draft.id); save(); draft = null; stack.pop(); back(); toast('Memo deleted'); } break;
+      case 'sigclear': clearPad(b.dataset.who); break;
+      case 'sign': { const who = b.dataset.who, t = ticket(view.id), nm = $('#s-name-' + who).value.trim();
+        if (!nm) { toast('Enter the printed name first'); $('#s-name-' + who).focus(); break; }
+        if (!sigDirty[who]) { toast('Sign in the box first'); break; }
+        t.sigs[who] = { name: nm, img: trimmedPNG($('#sig-' + who)), at: Date.now() }; save(); rerenderKeepScroll(); toast('Signature saved'); } break;
+      case 'clearsig': if (confirmTap(b, 'cs' + b.dataset.who, 'Tap again to clear')) { const t = ticket(view.id); t.sigs[b.dataset.who] = { name: t.sigs[b.dataset.who].name, img: '', at: 0 }; save(); rerenderKeepScroll(); } break;
+      case 'print': { const t = ticket(view.id), j = job(t.jobId), old = document.title; document.title = `Field Memo ${t.no} - ${j.project} - ${t.date}`; window.print(); setTimeout(() => (document.title = old), 1000); } break;
+      case 'export': { const j = job(view.id); offerFile(`FieldMemos-${slug(j.po || j.project)}-${today()}.csv`, toCSV(jobTickets(j.id)), 'text/csv', 'Export project memos'); } break;
+      case 'exportone': { const t = ticket(view.id), j = job(t.jobId); offerFile(`FieldMemo-${t.no}-${slug(j.project)}.csv`, toCSV([t]), 'text/csv', 'Export this memo'); } break;
+      case 'backup': offerFile(`fieldmemo-backup-${today()}.json`, JSON.stringify(db), 'application/json', 'Back up all data'); break;
+      case 'restore': restorePrompt(); break;
+    }
+  });
+
+  function liveTotals() {
+    readDraft();
+    document.querySelectorAll('.lt').forEach((el) => (el.textContent = fmtH(hoursOf(draft.labour[+el.dataset.i])) + ' hrs'));
+    const tot = $('#hrs-total'); if (tot) tot.textContent = fmtH(ticketHours(draft)) + ' hrs';
+  }
+  document.addEventListener('input', (e) => { if (view.name === 'edit' && e.target.closest('[data-list="labour"]')) liveTotals(); });
+  document.addEventListener('change', (e) => { if (view.name === 'edit' && e.target.closest('[data-list="labour"]')) liveTotals(); });
+
+  document.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    if (f.id === 'jobform') {
+      const vals = {}; ['project', 'location', 'client', 'clientRep', 'po', 'pm'].forEach((k) => (vals[k] = $('#j-' + k).value.trim()));
+      if (!vals.project) { toast('Give the project a name'); return; }
+      if (view.id) { Object.assign(job(view.id), vals); save(); back(); }
+      else { const j = { id: uid(), created: Date.now(), ...vals }; db.jobs.push(j); save(); view = { name: 'job', id: j.id }; render(); window.scrollTo(0, 0); }
+      toast('Project saved');
+    }
+    if (f.id === 'tform') {
+      readDraft();
+      draft.labour = draft.labour.filter((l) => l.name.trim());
+      draft.materials = draft.materials.filter((m) => m.desc.trim());
+      draft.equipment = draft.equipment.map((x) => x.trim()).filter(Boolean);
+      const isNew = draft.isNew; delete draft.isNew;
+      if (isNew) { db.tickets.push(draft); db.nextNo = Math.max(n(db.nextNo), draft.no) + 1; }
+      else {
+        const i = db.tickets.findIndex((t) => t.id === draft.id), old = db.tickets[i];
+        const strip = (t) => JSON.stringify({ ...t, sigs: null });
+        if ((old.sigs.co.img || old.sigs.client.img) && strip(old) !== strip(draft)) {
+          draft.sigs.co = { ...draft.sigs.co, img: '', at: 0 }; draft.sigs.client = { ...draft.sigs.client, img: '', at: 0 }; toast('Memo changed, signatures cleared');
+        }
+        db.tickets[i] = draft; stack.pop(); // drop the old ticket view under the editor
+      }
+      save(); const id = draft.id; draft = null;
+      view = { name: 'ticket', id }; render(); window.scrollTo(0, 0); if (isNew) toast('Memo saved. Get it signed below.');
+    }
+    if (f.id === 'sform') {
+      const s = db.settings;
+      s.company = $('#s-company').value.trim(); s.short = $('#s-short').value.trim() || 'DRLTD'; s.supervisor = $('#s-sup').value.trim();
+      db.nextNo = Math.max(1, parseInt($('#s-next').value, 10) || db.nextNo);
+      save(); back(); toast('Settings saved');
+    }
+  });
+
+  render();
+
+  if (!inFrame && 'serviceWorker' in navigator && location.protocol !== 'file:') {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+})();
+</script>
